@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ritter Sport Detector</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            transition: background-color 0.5s ease; /* Smooth color transition */
+        }
+
+        h1 {
+            color: #333;
+            font-size: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        #webcam-container {
+            width: 300px;
+            height: 300px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            border: 5px solid white;
+            background: #000;
+        }
+
+        #label-container {
+            width: 300px;
+            margin-top: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .label-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        /* Progress bar styling */
+        .progress-bar-bg {
+            width: 100%;
+            height: 10px;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background-color: #333;
+            transition: width 0.2s ease, background-color 0.2s;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 18px;
+            background-color: #333;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Ritter Sport Detector</h1>
+    <button type="button" onclick="init()">Start Scanner</button>
+    <div id="webcam-container"></div>
+    <div id="label-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <script type="text/javascript">
+        // -----------------------------------------------------------
+        // PASTE YOUR TEACHABLE MACHINE LINK HERE:
+        // -----------------------------------------------------------
+        const URL = "https://invictu520.github.io/BOGY_models/";
+
+        let model, webcam, labelContainer, maxPredictions;
+
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            // Load the model
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            // Setup Webcam
+            // flip = false because we usually scan objects with the REAR camera
+            const flip = false; 
+            const width = 300;
+            const height = 300;
+            webcam = new tmImage.Webcam(width, height, flip); 
+            
+            await webcam.setup(); 
+            // Important for iOS 
+            webcam.webcam.setAttribute('playsinline', true); 
+            webcam.webcam.setAttribute('muted', '');
+            
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            
+            // Hide start button
+            document.querySelector("button").style.display = "none";
+
+            // Create label bars
+            labelContainer = document.getElementById("label-container");
+            for (let i = 0; i < maxPredictions; i++) {
+                // Create text label
+                let textDiv = document.createElement("div");
+                textDiv.className = "label-item";
+                textDiv.id = "label-text-" + i;
+                
+                // Create progress bar
+                let barBg = document.createElement("div");
+                barBg.className = "progress-bar-bg";
+                let barFill = document.createElement("div");
+                barFill.className = "progress-bar-fill";
+                barFill.id = "label-bar-" + i;
+                
+                barBg.appendChild(barFill);
+                labelContainer.appendChild(textDiv);
+                labelContainer.appendChild(barBg);
+            }
+        }
+
+        async function loop() {
+            webcam.update(); 
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+
+            // Determine the highest probability class
+            let highestProb = 0;
+            let bestClass = "";
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const classPrediction = prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(0) + "%";
+                const probability = prediction[i].probability;
+
+                // Update text
+                document.getElementById("label-text-" + i).innerHTML = classPrediction;
+                
+                // Update bar width
+                const bar = document.getElementById("label-bar-" + i);
+                bar.style.width = (probability * 100) + "%";
+
+                // Track best guess for dynamic coloring
+                if (probability > highestProb) {
+                    highestProb = probability;
+                    bestClass = prediction[i].className;
+                }
+                
+                // Set specific bar colors based on class name
+                if (prediction[i].className.includes("Knusperkeks")) {
+                    bar.style.backgroundColor = "#FFD700"; // Yellow
+                } else if (prediction[i].className.includes("Alpenmilch")) {
+                    bar.style.backgroundColor = "#0047AB"; // Blue
+                } else {
+                    bar.style.backgroundColor = "#555"; // Default Gray
+                }
+            }
+
+            // DYNAMIC THEME CHANGE
+            // If the model is very sure (> 80%), change the whole background
+            if (highestProb > 0.80) {
+                if (bestClass.includes("Knusperkeks")) {
+                    document.body.style.backgroundColor = "#FFF5C2"; // Light Yellow Bg
+                } else if (bestClass.includes("Alpenmilch")) {
+                    document.body.style.backgroundColor = "#C2D4FF"; // Light Blue Bg
+                } else {
+                    document.body.style.backgroundColor = "#f0f0f0"; // Default
+                }
+            }
+        }
+    </script>
+</body>
+</html>
